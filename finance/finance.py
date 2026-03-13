@@ -672,9 +672,10 @@ def breakout_scan_section() -> rx.Component:
 
 def vwap_scan_section() -> rx.Component:
     return rx.vstack(
-        # VWAP 기간 슬라이더
+        # 설정 카드 (VWAP 기간 + 돌파 시점 제한)
         rx.card(
             rx.vstack(
+                # VWAP 계산 기간
                 rx.hstack(
                     rx.text("📅 VWAP 계산 기간", size="3", weight="bold"),
                     rx.badge(State.vwap_period_label, color_scheme="violet", variant="surface"),
@@ -690,15 +691,36 @@ def vwap_scan_section() -> rx.Component:
                 rx.hstack(
                     rx.text("1개월", size="1", color="gray"),
                     rx.spacer(),
-                    rx.text("기간 내 거래량 가중 평균가격 기준", size="1", color="gray"),
-                    rx.spacer(),
                     rx.text("12개월", size="1", color="gray"),
+                    width="100%",
+                ),
+                rx.separator(width="100%"),
+                # 돌파 시점 제한
+                rx.hstack(
+                    rx.text("⏱️ 돌파 시점 제한", size="3", weight="bold"),
+                    rx.badge(State.vwap_crossover_label, color_scheme="violet", variant="surface"),
+                    spacing="3",
+                    align="center",
+                ),
+                rx.slider(
+                    min=1, max=30, step=1,
+                    value=[State.vwap_crossover_days],
+                    on_change=State.set_vwap_crossover_days,
+                    width="100%",
+                    color_scheme="violet",
+                ),
+                rx.hstack(
+                    rx.text("1일", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("VWAP 상단 돌파 후 이 기간 이내 종목만 표시", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("30일", size="1", color="gray"),
                     width="100%",
                 ),
                 rx.box(
                     rx.text(
-                        "💡  VWAP = Σ(고가+저가+종가)/3 × 거래량) / Σ(거래량)  "
-                        "· 최근 30일 이내 VWAP 하단→상단 교차 종목만 표시",
+                        "💡  VWAP = Σ((고가+저가+종가)/3 × 거래량) / Σ(거래량)  "
+                        "· 설정한 기간 이내 VWAP 하단→상단 교차 종목만 표시",
                         size="1",
                         color="gray",
                     ),
@@ -741,7 +763,7 @@ def vwap_scan_section() -> rx.Component:
                         spacing="2",
                     ),
                     rx.text(
-                        "최근 30일 이내 VWAP 하단→상단 교차 종목 · VWAP 대비 % 순 정렬",
+                        "VWAP 하단→상단 교차 종목 · VWAP 대비 % 순 정렬",
                         size="2", color="gray",
                     ),
                     rx.foreach(State.vwap_scan_results, render_vwap_card),

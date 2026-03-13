@@ -235,6 +235,7 @@ class State(rx.State):
     vwap_scan_total: int = 0
     vwap_scan_done: bool = False
     vwap_period_months: int = 3   # VWAP 계산 기간 (기본 3개월)
+    vwap_crossover_days: int = 7  # 돌파 시점 제한 (캘린더일, 기본 1주일)
 
     # ── 탭 상태 ─────────────────────────────────────────────────────────────────
     active_tab: str = "analysis"
@@ -313,6 +314,17 @@ class State(rx.State):
     @rx.var
     def vwap_period_label(self) -> str:
         return f"{self.vwap_period_months}개월"
+
+    @rx.var
+    def vwap_crossover_label(self) -> str:
+        d = self.vwap_crossover_days
+        if d == 7:
+            return "1주일"
+        if d == 14:
+            return "2주일"
+        if d % 7 == 0:
+            return f"{d // 7}주일"
+        return f"{d}일"
 
     @rx.var
     def has_vwap_results(self) -> bool:
@@ -702,6 +714,10 @@ class State(rx.State):
         if value:
             self.vwap_period_months = int(value[0])
 
+    def set_vwap_crossover_days(self, value: list):
+        if value:
+            self.vwap_crossover_days = int(value[0])
+
     async def run_vwap_scan(self):
         """VWAP 상단 돌파 종목 스캔 (배치 다운로드 - Yahoo Finance 1회 요청)"""
         if self.vwap_scanning:
@@ -778,9 +794,9 @@ class State(rx.State):
                 last_cross_idx = crossed_dates.index[-1]
                 crossover_date = last_cross_idx.strftime("%Y.%m.%d")
 
-                # 최근 30 캘린더일(≈20 거래일) 이내 돌파만 포함
+                # 설정된 캘린더일 이내 돌파만 포함
                 days_since = (close_s.index[-1] - last_cross_idx).days
-                if days_since > 30:
+                if days_since > self.vwap_crossover_days:
                     continue
 
                 vwap_pct = (current - vwap) / vwap * 100
