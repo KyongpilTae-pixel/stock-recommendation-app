@@ -19,6 +19,17 @@ class BreakoutResult(rx.Base):
     breakout_date: str = ""  # 전고점 최초 돌파일
 
 
+class VWAPResult(rx.Base):
+    ticker: str = ""
+    name: str = ""
+    formatted_price: str = ""
+    formatted_vwap: str = ""
+    formatted_vwap_pct: str = ""   # VWAP 대비 %
+    formatted_change_pct: str = ""
+    change_positive: bool = True
+    crossover_date: str = ""       # VWAP 상단 돌파일
+
+
 KOSPI200_LIST = [
     # IT / 반도체
     "005930.KS",  # 삼성전자
@@ -217,6 +228,14 @@ class State(rx.State):
     scan_period_months: int = 6   # 전고점 분석 기간 (1~12개월)
     scan_recent_days: int = 15    # 최근 N 거래일 내 돌파 인정
 
+    # ── VWAP 스캐너 ────────────────────────────────────────────────────────────
+    vwap_scan_results: List[VWAPResult] = []
+    vwap_scanning: bool = False
+    vwap_scan_progress: int = 0
+    vwap_scan_total: int = 0
+    vwap_scan_done: bool = False
+    vwap_period_months: int = 3   # VWAP 계산 기간 (기본 3개월)
+
     # ── Computed vars (분석) ──────────────────────────────────────────────────
 
     @rx.var
@@ -275,6 +294,30 @@ class State(rx.State):
     @rx.var
     def scan_period_label(self) -> str:
         return f"{self.scan_period_months}개월"
+
+    @rx.var
+    def vwap_progress_pct(self) -> int:
+        if self.vwap_scan_total == 0:
+            return 0
+        return int(self.vwap_scan_progress / self.vwap_scan_total * 100)
+
+    @rx.var
+    def vwap_status_text(self) -> str:
+        if self.vwap_scan_progress == 0:
+            return "Yahoo Finance 데이터 다운로드 중..."
+        return f"VWAP 분석 중... ({self.vwap_scan_progress} / {self.vwap_scan_total})"
+
+    @rx.var
+    def vwap_period_label(self) -> str:
+        return f"{self.vwap_period_months}개월"
+
+    @rx.var
+    def has_vwap_results(self) -> bool:
+        return len(self.vwap_scan_results) > 0
+
+    @rx.var
+    def vwap_result_count(self) -> int:
+        return len(self.vwap_scan_results)
 
     @rx.var
     def scan_result_count(self) -> int:
@@ -626,3 +669,134 @@ class State(rx.State):
         self.scan_results = sorted(results, key=lambda r: r.formatted_breakout_pct, reverse=True)
         self.scanning = False
         self.scan_done = True
+
+    # ── VWAP 스캐너 ───────────────────────────────────────────────────────────
+
+    def set_vwap_period(self, value: list):
+        if value:
+            self.vwap_period_months = int(value[0])
+
+    async def run_vwap_scan(self):
+        """VWAP 상단 돌파 종목 스캔 (배치 다운로드 - Yahoo Finance 1회 요청)"""
+        if self.vwap_scanning:
+            return
+
+        self.vwap_scanning = True
+        self.vwap_scan_results = []
+        self.vwap_scan_done = False
+        self.vwap_scan_progress = 0
+        self.vwap_scan_total = len(self.scan_stocks)
+        yield
+
+        import yfinance as yf
+
+        tickers = list(self.scan_stocks)
+        period_str = "1y" if self.vwap_period_months >= 12 else f"{self.vwap_period_months}mo"
+
+        # ── 1회 배치 다운로드 ─────────────────────────────────────────────────
+        try:
+            raw = yf.download(
+                tickers,
+                period=period_str,
+                auto_adjust=True,
+                progress=False,
+            )
+        except Exception:
+            self.vwap_scanning = False
+            self.vwap_scan_done = True
+            return
+
+        is_multi = len(tickers) > 1
+        results = []
+
+        for i, ticker in enumerate(tickers):
+            self.vwap_scan_progress = i + 1
+            yield
+
+            try:
+                if is_multi:
+                    if ticker not in raw["Close"].columns:
+                        continue
+                    close_s = raw["Close"][ticker].dropna()
+                    high_s  = raw["High"][ticker].dropna()
+                    low_s   = raw["Low"][ticker].dropna()
+                    vol_s   = raw["Volume"][ticker].dropna()
+                else:
+                    close_s = raw["Close"].dropna()
+                    high_s  = raw["High"].dropna()
+                    low_s   = raw["Low"].dropna()
+                    vol_s   = raw["Volume"].dropna()
+
+                if len(close_s) < 10 or vol_s.sum() == 0:
+                    continue
+
+                # ── VWAP 계산: Σ(TP × Volume) / Σ(Volume) ──────────────────
+                typical = (high_s + low_s + close_s) / 3
+                vwap = float((typical * vol_s).sum() / vol_s.sum())
+                current = float(close_s.iloc[-1])
+
+                # 현재가가 VWAP 아래면 스킵
+                if current <= vwap:
+                    continue
+
+                # ── VWAP 상단 교차일 탐색 (아래→위 교차) ────────────────────
+                above = close_s > vwap
+                prev_above = above.shift(1).fillna(False)
+                crossover = above & (~prev_above)
+                crossed_dates = crossover[crossover]
+
+                if crossed_dates.empty:
+                    # 기간 내 내내 위에 있었으면 스킵 (최근 돌파 아님)
+                    continue
+
+                last_cross_idx = crossed_dates.index[-1]
+                crossover_date = last_cross_idx.strftime("%Y.%m.%d")
+
+                # 최근 30 캘린더일(≈20 거래일) 이내 돌파만 포함
+                days_since = (close_s.index[-1] - last_cross_idx).days
+                if days_since > 30:
+                    continue
+
+                vwap_pct = (current - vwap) / vwap * 100
+                prev_close = float(close_s.iloc[-2]) if len(close_s) > 1 else current
+                change_pct = (current - prev_close) / prev_close * 100
+
+                is_kr = ticker.endswith(".KS") or ticker.endswith(".KQ")
+                currency = "KRW" if is_kr else "USD"
+
+                # 돌파 종목만 info 요청
+                try:
+                    info = yf.Ticker(ticker).info
+                    name = info.get("longName") or info.get("shortName") or ticker
+                    currency = info.get("currency") or currency
+                except Exception:
+                    name = ticker
+
+                if currency == "KRW":
+                    fmt_price = f"₩{current:,.0f}"
+                    fmt_vwap  = f"₩{vwap:,.0f}"
+                else:
+                    fmt_price = f"${current:.2f}"
+                    fmt_vwap  = f"${vwap:.2f}"
+
+                vp_sign = "+" if vwap_pct >= 0 else ""
+                cp_sign = "+" if change_pct >= 0 else ""
+
+                results.append(VWAPResult(
+                    ticker=ticker,
+                    name=name,
+                    formatted_price=fmt_price,
+                    formatted_vwap=fmt_vwap,
+                    formatted_vwap_pct=f"{vp_sign}{vwap_pct:.2f}%",
+                    formatted_change_pct=f"{cp_sign}{change_pct:.2f}%",
+                    change_positive=change_pct >= 0,
+                    crossover_date=crossover_date,
+                ))
+
+            except Exception:
+                pass
+
+        # VWAP 대비 % 내림차순 정렬
+        self.vwap_scan_results = sorted(results, key=lambda r: r.formatted_vwap_pct, reverse=True)
+        self.vwap_scanning = False
+        self.vwap_scan_done = True

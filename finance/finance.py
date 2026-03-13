@@ -1,5 +1,5 @@
 import reflex as rx
-from finance.state import State, TechSignal, BreakoutResult, DEFAULT_SCAN_LIST
+from finance.state import State, TechSignal, BreakoutResult, VWAPResult, DEFAULT_SCAN_LIST
 
 POPULAR_STOCKS = [
     "AAPL", "MSFT", "GOOGL", "NVDA",
@@ -330,7 +330,7 @@ def analysis_tab() -> rx.Component:
     )
 
 
-# ── 전고점 돌파 스캐너 탭 ──────────────────────────────────────────────────────
+# ── 스캐너 공통 컴포넌트 ────────────────────────────────────────────────────────
 
 def render_scan_stock_badge(stock: str) -> rx.Component:
     return rx.hstack(
@@ -349,6 +349,60 @@ def render_scan_stock_badge(stock: str) -> rx.Component:
         border_radius="999px",
         padding="0.25em 0.7em",
         spacing="1",
+    )
+
+
+def scan_stock_list_card() -> rx.Component:
+    """스캔 대상 종목 목록 카드 (전고점 / VWAP 공유)"""
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.heading("스캔 대상 종목", size="4", weight="bold"),
+                rx.badge(State.scan_stock_count, color_scheme="gray", variant="surface"),
+                rx.spacer(),
+                rx.button(
+                    "초기화",
+                    on_click=State.reset_scan,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                ),
+                align="center",
+                width="100%",
+            ),
+            rx.separator(width="100%"),
+            rx.box(
+                rx.foreach(State.scan_stocks, render_scan_stock_badge),
+                display="flex",
+                flex_wrap="wrap",
+                gap="0.5em",
+                width="100%",
+                padding_y="0.5em",
+            ),
+            rx.separator(width="100%"),
+            rx.hstack(
+                rx.input(
+                    placeholder="종목 추가  (예: INTC, 삼성전자: 005930.KS)",
+                    value=State.scan_input,
+                    on_change=State.set_scan_input,
+                    on_key_down=State.handle_scan_key,
+                    size="2",
+                    width="320px",
+                ),
+                rx.button(
+                    "추가",
+                    on_click=State.add_scan_stock,
+                    size="2",
+                    color_scheme="gray",
+                    variant="soft",
+                ),
+                spacing="2",
+            ),
+            spacing="4",
+            width="100%",
+        ),
+        width="100%",
+        padding="1.5em",
     )
 
 
@@ -403,63 +457,80 @@ def render_breakout_card(result: BreakoutResult) -> rx.Component:
     )
 
 
-def scanner_tab() -> rx.Component:
-    return rx.vstack(
-        # 스캔 종목 설정 카드
+def render_vwap_card(result: VWAPResult) -> rx.Component:
+    return rx.card(
+        rx.hstack(
+            rx.vstack(
+                rx.hstack(
+                    rx.badge(result.ticker, color_scheme="violet", variant="surface", size="2"),
+                    rx.badge(
+                        result.formatted_change_pct,
+                        color_scheme=rx.cond(result.change_positive, "green", "red"),
+                        variant="soft",
+                        size="2",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.text(result.name, size="2", color="gray"),
+                rx.hstack(
+                    rx.text("돌파일:", size="1", color="gray"),
+                    rx.text(result.crossover_date, size="1", weight="medium", color="var(--violet-11)"),
+                    spacing="1",
+                ),
+                spacing="2",
+                align="start",
+            ),
+            rx.spacer(),
+            rx.vstack(
+                rx.text(result.formatted_price, size="5", weight="bold"),
+                rx.hstack(
+                    rx.text("VWAP", size="1", color="gray"),
+                    rx.text(result.formatted_vwap, size="1", color="gray", weight="medium"),
+                    spacing="1",
+                ),
+                rx.badge(
+                    "📊 VWAP +" + result.formatted_vwap_pct,
+                    color_scheme="violet",
+                    variant="solid",
+                    size="2",
+                ),
+                align="end",
+                spacing="1",
+            ),
+            width="100%",
+            align="center",
+            padding="0.5em",
+        ),
+        width="100%",
+    )
+
+
+def _scan_progress_card(scanning, status_text, progress_pct) -> rx.Component:
+    return rx.cond(
+        scanning,
         rx.card(
             rx.vstack(
                 rx.hstack(
-                    rx.heading("스캔 대상 종목", size="4", weight="bold"),
-                    rx.badge(State.scan_stock_count, color_scheme="gray", variant="surface"),
-                    rx.spacer(),
-                    rx.button(
-                        "초기화",
-                        on_click=State.reset_scan,
-                        size="1",
-                        variant="ghost",
-                        color_scheme="gray",
-                    ),
+                    rx.spinner(size="2"),
+                    rx.text(status_text, size="3"),
+                    spacing="3",
                     align="center",
-                    width="100%",
                 ),
-                rx.separator(width="100%"),
-                # 종목 태그 목록
-                rx.box(
-                    rx.foreach(State.scan_stocks, render_scan_stock_badge),
-                    display="flex",
-                    flex_wrap="wrap",
-                    gap="0.5em",
-                    width="100%",
-                    padding_y="0.5em",
-                ),
-                rx.separator(width="100%"),
-                # 종목 추가
-                rx.hstack(
-                    rx.input(
-                        placeholder="종목 추가  (예: INTC, 삼성전자: 005930.KS)",
-                        value=State.scan_input,
-                        on_change=State.set_scan_input,
-                        on_key_down=State.handle_scan_key,
-                        size="2",
-                        width="320px",
-                    ),
-                    rx.button(
-                        "추가",
-                        on_click=State.add_scan_stock,
-                        size="2",
-                        color_scheme="gray",
-                        variant="soft",
-                    ),
-                    spacing="2",
-                ),
-                spacing="4",
+                rx.progress(value=progress_pct, width="100%"),
+                spacing="3",
                 width="100%",
             ),
             width="100%",
             padding="1.5em",
         ),
+        rx.box(),
+    )
 
-        # 전고점 분석 기간 설정
+
+def breakout_scan_section() -> rx.Component:
+    return rx.vstack(
+        # 기간 슬라이더
         rx.card(
             rx.vstack(
                 rx.hstack(
@@ -469,9 +540,7 @@ def scanner_tab() -> rx.Component:
                     align="center",
                 ),
                 rx.slider(
-                    min=1,
-                    max=12,
-                    step=1,
+                    min=1, max=12, step=1,
                     value=[State.scan_period_months],
                     on_change=State.set_scan_period,
                     width="100%",
@@ -490,15 +559,10 @@ def scanner_tab() -> rx.Component:
             width="100%",
             padding="1.5em",
         ),
-
-        # 스캔 실행 버튼
+        # 스캔 버튼
         rx.center(
             rx.button(
-                rx.cond(
-                    State.scanning,
-                    "스캔 중...",
-                    "🚀  전고점 돌파 스캔 시작",
-                ),
+                "🚀  전고점 돌파 스캔 시작",
                 on_click=State.run_breakout_scan,
                 loading=State.scanning,
                 size="3",
@@ -507,76 +571,37 @@ def scanner_tab() -> rx.Component:
             ),
             width="100%",
         ),
-
         # 진행률
-        rx.cond(
-            State.scanning,
-            rx.card(
-                rx.vstack(
-                    rx.hstack(
-                        rx.spinner(size="2"),
-                        rx.text(State.scan_status_text, size="3"),
-                        spacing="3",
-                        align="center",
-                    ),
-                    rx.progress(value=State.scan_progress_pct, width="100%"),
-                    spacing="3",
-                    width="100%",
-                ),
-                width="100%",
-                padding="1.5em",
-            ),
-            rx.box(),
-        ),
-
+        _scan_progress_card(State.scanning, State.scan_status_text, State.scan_progress_pct),
         # 결과
         rx.cond(
             State.scan_done,
-            rx.vstack(
-                rx.cond(
-                    State.has_scan_results,
-                    rx.vstack(
-                        rx.hstack(
-                            rx.heading("🎯 전고점 돌파 종목", size="4", weight="bold"),
-                            rx.badge(
-                                State.scan_result_count,
-                                color_scheme="green",
-                                variant="solid",
-                                size="2",
-                            ),
-                            rx.text("개 발견", size="3", color="gray"),
-                            align="center",
-                            spacing="2",
-                        ),
-                        rx.text(
-                            "최근 15거래일 이내에 직전 5개월 고점을 돌파한 종목입니다. 돌파율 순으로 정렬됩니다.",
-                            size="2",
-                            color="gray",
-                        ),
-                        rx.foreach(State.scan_results, render_breakout_card),
-                        spacing="3",
-                        width="100%",
+            rx.cond(
+                State.has_scan_results,
+                rx.vstack(
+                    rx.hstack(
+                        rx.heading("🎯 전고점 돌파 종목", size="4", weight="bold"),
+                        rx.badge(State.scan_result_count, color_scheme="green", variant="solid", size="2"),
+                        rx.text("개 발견", size="3", color="gray"),
+                        align="center",
+                        spacing="2",
                     ),
-                    rx.center(
-                        rx.vstack(
-                            rx.text("😔", font_size="3em"),
-                            rx.text(
-                                "전고점 돌파 종목이 없습니다.",
-                                size="4",
-                                color="gray",
-                            ),
-                            rx.text(
-                                "스캔 대상 종목을 추가하거나 나중에 다시 시도해보세요.",
-                                size="2",
-                                color="gray",
-                            ),
-                            align="center",
-                            spacing="3",
-                        ),
-                        padding="4em",
+                    rx.text(
+                        "최근 15거래일 이내 전고점을 돌파한 종목 · 돌파율 순 정렬",
+                        size="2", color="gray",
                     ),
+                    rx.foreach(State.scan_results, render_breakout_card),
+                    spacing="3",
+                    width="100%",
                 ),
-                width="100%",
+                rx.center(
+                    rx.vstack(
+                        rx.text("😔", font_size="3em"),
+                        rx.text("전고점 돌파 종목이 없습니다.", size="4", color="gray"),
+                        align="center", spacing="3",
+                    ),
+                    padding="4em",
+                ),
             ),
             rx.cond(
                 State.scanning,
@@ -584,24 +609,141 @@ def scanner_tab() -> rx.Component:
                 rx.center(
                     rx.vstack(
                         rx.text("🔭", font_size="3em"),
-                        rx.text(
-                            "스캔 시작 버튼을 클릭하면 전고점 돌파 종목을 찾아드립니다",
-                            color="gray",
-                            size="3",
-                        ),
-                        rx.text(
-                            f"현재 {len(DEFAULT_SCAN_LIST)}개 종목 (미국 + 국내 대형주) 스캔 대상",
-                            color="gray",
-                            size="2",
-                        ),
-                        align="center",
-                        spacing="3",
+                        rx.text("스캔 버튼을 클릭하면 전고점 돌파 종목을 찾아드립니다", color="gray", size="3"),
+                        align="center", spacing="3",
                     ),
                     padding="4em",
                 ),
             ),
         ),
+        spacing="4",
+        width="100%",
+        padding_top="1.5em",
+    )
 
+
+def vwap_scan_section() -> rx.Component:
+    return rx.vstack(
+        # VWAP 기간 슬라이더
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.text("📅 VWAP 계산 기간", size="3", weight="bold"),
+                    rx.badge(State.vwap_period_label, color_scheme="violet", variant="surface"),
+                    spacing="3",
+                    align="center",
+                ),
+                rx.slider(
+                    min=1, max=12, step=1,
+                    value=[State.vwap_period_months],
+                    on_change=State.set_vwap_period,
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.text("1개월", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("기간 내 거래량 가중 평균가격 기준", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("12개월", size="1", color="gray"),
+                    width="100%",
+                ),
+                rx.box(
+                    rx.text(
+                        "💡  VWAP = Σ(고가+저가+종가)/3 × 거래량) / Σ(거래량)  "
+                        "· 최근 30일 이내 VWAP 하단→상단 교차 종목만 표시",
+                        size="1",
+                        color="gray",
+                    ),
+                    background="var(--violet-2)",
+                    border="1px solid var(--violet-5)",
+                    border_radius="6px",
+                    padding="0.6em 0.8em",
+                ),
+                spacing="3",
+                width="100%",
+            ),
+            width="100%",
+            padding="1.5em",
+        ),
+        # 스캔 버튼
+        rx.center(
+            rx.button(
+                "📊  VWAP 돌파 스캔 시작",
+                on_click=State.run_vwap_scan,
+                loading=State.vwap_scanning,
+                size="3",
+                color_scheme="violet",
+                width="320px",
+            ),
+            width="100%",
+        ),
+        # 진행률
+        _scan_progress_card(State.vwap_scanning, State.vwap_status_text, State.vwap_progress_pct),
+        # 결과
+        rx.cond(
+            State.vwap_scan_done,
+            rx.cond(
+                State.has_vwap_results,
+                rx.vstack(
+                    rx.hstack(
+                        rx.heading("📊 VWAP 상단 돌파 종목", size="4", weight="bold"),
+                        rx.badge(State.vwap_result_count, color_scheme="violet", variant="solid", size="2"),
+                        rx.text("개 발견", size="3", color="gray"),
+                        align="center",
+                        spacing="2",
+                    ),
+                    rx.text(
+                        "최근 30일 이내 VWAP 하단→상단 교차 종목 · VWAP 대비 % 순 정렬",
+                        size="2", color="gray",
+                    ),
+                    rx.foreach(State.vwap_scan_results, render_vwap_card),
+                    spacing="3",
+                    width="100%",
+                ),
+                rx.center(
+                    rx.vstack(
+                        rx.text("😔", font_size="3em"),
+                        rx.text("VWAP 돌파 종목이 없습니다.", size="4", color="gray"),
+                        align="center", spacing="3",
+                    ),
+                    padding="4em",
+                ),
+            ),
+            rx.cond(
+                State.vwap_scanning,
+                rx.box(),
+                rx.center(
+                    rx.vstack(
+                        rx.text("📊", font_size="3em"),
+                        rx.text("스캔 버튼을 클릭하면 VWAP 돌파 종목을 찾아드립니다", color="gray", size="3"),
+                        align="center", spacing="3",
+                    ),
+                    padding="4em",
+                ),
+            ),
+        ),
+        spacing="4",
+        width="100%",
+        padding_top="1.5em",
+    )
+
+
+def scanner_tab() -> rx.Component:
+    return rx.vstack(
+        # 공유: 스캔 대상 종목 목록
+        scan_stock_list_card(),
+        # 서브탭: 전고점 돌파 / VWAP 돌파
+        rx.tabs.root(
+            rx.tabs.list(
+                rx.tabs.trigger("📈  전고점 돌파", value="breakout"),
+                rx.tabs.trigger("📊  VWAP 돌파", value="vwap"),
+                size="2",
+            ),
+            rx.tabs.content(breakout_scan_section(), value="breakout"),
+            rx.tabs.content(vwap_scan_section(), value="vwap"),
+            default_value="breakout",
+            width="100%",
+        ),
         spacing="4",
         width="100%",
         padding_y="2em",
