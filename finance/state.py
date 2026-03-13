@@ -8,11 +8,31 @@ class TechSignal(rx.Base):
     signal: str = ""  # "bullish", "bearish", "neutral"
 
 
+class BreakoutResult(rx.Base):
+    ticker: str = ""
+    name: str = ""
+    formatted_price: str = ""
+    formatted_prev_high: str = ""
+    formatted_breakout_pct: str = ""
+    formatted_change_pct: str = ""
+    change_positive: bool = True
+
+
+DEFAULT_SCAN_LIST = [
+    # 미국 대형주
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA",
+    "META", "JPM", "V", "MA", "UNH", "COST",
+    "AVGO", "NFLX", "ADBE", "AMD",
+    # 국내 대형주
+    "005930.KS", "000660.KS", "035720.KS",
+    "005380.KS", "051910.KS", "006400.KS", "207940.KS", "373220.KS",
+]
+
+
 class State(rx.State):
-    # 검색 입력
+    # ── 종목 분석 ──────────────────────────────────────────────────────────────
     ticker_input: str = ""
 
-    # 종목 정보 (flat 구조)
     company_name: str = ""
     current_ticker: str = ""
     price: float = 0.0
@@ -25,18 +45,25 @@ class State(rx.State):
     week_52_low: float = 0.0
     currency: str = "USD"
 
-    # 차트 & 기술적 분석
     chart_data: list = []
     tech_signals: List[TechSignal] = []
     recommendation: str = ""
     recommendation_reason: str = ""
 
-    # UI 상태
     loading: bool = False
     error: str = ""
     has_data: bool = False
 
-    # ── Computed vars ─────────────────────────────────────────────────────────
+    # ── 전고점 돌파 스캐너 ─────────────────────────────────────────────────────
+    scan_stocks: list = DEFAULT_SCAN_LIST
+    scan_input: str = ""
+    scan_results: List[BreakoutResult] = []
+    scanning: bool = False
+    scan_progress: int = 0
+    scan_total: int = 0
+    scan_done: bool = False
+
+    # ── Computed vars (분석) ──────────────────────────────────────────────────
 
     @rx.var
     def price_color(self) -> str:
@@ -77,7 +104,31 @@ class State(rx.State):
             return f"₩{self.week_52_low:,.0f}"
         return f"${self.week_52_low:.2f}"
 
-    # ── Event handlers ────────────────────────────────────────────────────────
+    # ── Computed vars (스캐너) ────────────────────────────────────────────────
+
+    @rx.var
+    def scan_progress_pct(self) -> int:
+        if self.scan_total == 0:
+            return 0
+        return int(self.scan_progress / self.scan_total * 100)
+
+    @rx.var
+    def scan_status_text(self) -> str:
+        return f"스캔 중... ({self.scan_progress} / {self.scan_total})"
+
+    @rx.var
+    def scan_result_count(self) -> int:
+        return len(self.scan_results)
+
+    @rx.var
+    def scan_stock_count(self) -> int:
+        return len(self.scan_stocks)
+
+    @rx.var
+    def has_scan_results(self) -> bool:
+        return len(self.scan_results) > 0
+
+    # ── Event handlers (분석) ─────────────────────────────────────────────────
 
     def set_ticker(self, value: str):
         self.ticker_input = value.upper()
@@ -86,11 +137,12 @@ class State(rx.State):
         if key == "Enter":
             return State.search_stock
 
-    async def search_stock(self, quick_ticker: str = ""):
-        """종목 검색 및 기술적 분석 수행"""
-        if quick_ticker:
-            self.ticker_input = quick_ticker.upper()
+    def quick_search(self, ticker: str):
+        self.ticker_input = ticker.upper()
+        return State.search_stock
 
+    async def search_stock(self):
+        """종목 검색 및 기술적 분석 수행"""
         if not self.ticker_input.strip():
             self.error = "종목 코드를 입력해주세요"
             return
@@ -126,7 +178,6 @@ class State(rx.State):
             change = price - prev_close
             change_pct = (change / prev_close * 100) if prev_close else 0
 
-            # 시가총액 포맷
             mc = info.get("marketCap") or 0
             if mc >= 1e12:
                 mc_str = f"{mc / 1e12:.2f}T"
@@ -139,7 +190,6 @@ class State(rx.State):
             else:
                 mc_str = "N/A"
 
-            # 거래량 포맷
             vol = info.get("regularMarketVolume") or info.get("volume") or 0
             if vol >= 1e9:
                 vol_str = f"{vol / 1e9:.2f}B"
@@ -169,7 +219,6 @@ class State(rx.State):
             self.week_52_low = float(info.get("fiftyTwoWeekLow") or 0)
             self.currency = info.get("currency") or "USD"
 
-            # 과거 데이터 (6개월)
             hist = ticker.history(period="6mo")
             if hist.empty:
                 self.error = "과거 데이터를 가져올 수 없습니다."
@@ -184,13 +233,11 @@ class State(rx.State):
                 for idx, row in hist.iterrows()
             ]
 
-            # ── 기술적 지표 계산 ───────────────────────────────────────────
             closes = hist["Close"]
             ma20 = float(closes.rolling(20).mean().iloc[-1])
             ma50 = float(closes.rolling(50).mean().iloc[-1])
             current = float(closes.iloc[-1])
 
-            # RSI (14일)
             delta = closes.diff()
             gain = delta.where(delta > 0, 0).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -199,7 +246,6 @@ class State(rx.State):
             rs = gain_val / loss_val if loss_val != 0 else 0
             rsi = float(100 - (100 / (1 + rs))) if rs else 50.0
 
-            # MACD
             ema12 = closes.ewm(span=12, adjust=False).mean()
             ema26 = closes.ewm(span=26, adjust=False).mean()
             macd_line = ema12 - ema26
@@ -210,7 +256,6 @@ class State(rx.State):
             signals: list = []
             score = 0
 
-            # MA20
             if current > ma20:
                 signals.append(TechSignal(name="MA20 (20일 이평)", value=f"{ma20:.2f}", signal="bullish"))
                 score += 1
@@ -218,7 +263,6 @@ class State(rx.State):
                 signals.append(TechSignal(name="MA20 (20일 이평)", value=f"{ma20:.2f}", signal="bearish"))
                 score -= 1
 
-            # MA50
             if current > ma50:
                 signals.append(TechSignal(name="MA50 (50일 이평)", value=f"{ma50:.2f}", signal="bullish"))
                 score += 1
@@ -226,7 +270,6 @@ class State(rx.State):
                 signals.append(TechSignal(name="MA50 (50일 이평)", value=f"{ma50:.2f}", signal="bearish"))
                 score -= 1
 
-            # 골든/데드 크로스
             if ma20 > ma50:
                 signals.append(TechSignal(name="이평 교차 신호", value="골든 크로스", signal="bullish"))
                 score += 1
@@ -234,7 +277,6 @@ class State(rx.State):
                 signals.append(TechSignal(name="이평 교차 신호", value="데드 크로스", signal="bearish"))
                 score -= 1
 
-            # RSI
             rsi_r = round(rsi, 1)
             if rsi < 30:
                 signals.append(TechSignal(name="RSI (14일)", value=str(rsi_r), signal="bullish"))
@@ -245,7 +287,6 @@ class State(rx.State):
             else:
                 signals.append(TechSignal(name="RSI (14일)", value=str(rsi_r), signal="neutral"))
 
-            # MACD
             if macd_val > sig_val:
                 signals.append(TechSignal(name="MACD", value=f"{macd_val:.4f}", signal="bullish"))
                 score += 1
@@ -255,7 +296,6 @@ class State(rx.State):
 
             self.tech_signals = signals
 
-            # ── 투자 추천 결정 ─────────────────────────────────────────────
             if score >= 3:
                 self.recommendation = "강력 매수"
                 self.recommendation_reason = (
@@ -293,3 +333,99 @@ class State(rx.State):
             self.error = f"오류가 발생했습니다: {str(e)}"
         finally:
             self.loading = False
+
+    # ── Event handlers (스캐너) ───────────────────────────────────────────────
+
+    def set_scan_input(self, value: str):
+        self.scan_input = value.upper()
+
+    def handle_scan_key(self, key: str):
+        if key == "Enter":
+            return State.add_scan_stock
+
+    def add_scan_stock(self):
+        ticker = self.scan_input.strip()
+        if ticker and ticker not in self.scan_stocks:
+            self.scan_stocks = list(self.scan_stocks) + [ticker]
+        self.scan_input = ""
+
+    def remove_scan_stock(self, ticker: str):
+        self.scan_stocks = [s for s in self.scan_stocks if s != ticker]
+
+    def reset_scan(self):
+        self.scan_stocks = list(DEFAULT_SCAN_LIST)
+        self.scan_results = []
+        self.scan_done = False
+
+    async def run_breakout_scan(self):
+        """전고점 돌파 종목 스캔"""
+        if self.scanning:
+            return
+
+        self.scanning = True
+        self.scan_results = []
+        self.scan_done = False
+        self.scan_progress = 0
+        self.scan_total = len(self.scan_stocks)
+        yield
+
+        import yfinance as yf
+
+        results = []
+
+        for i, ticker in enumerate(list(self.scan_stocks)):
+            self.scan_progress = i + 1
+            yield
+
+            try:
+                t = yf.Ticker(ticker)
+                hist = t.history(period="6mo")
+
+                if len(hist) < 30:
+                    continue
+
+                # 전고점: 최근 15거래일 이전 구간의 최고가
+                lookback = max(len(hist) - 15, 20)
+                prev_high = float(hist["High"].iloc[:lookback].max())
+                current = float(hist["Close"].iloc[-1])
+
+                if current > prev_high:
+                    prev_close = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current
+                    change_pct = (current - prev_close) / prev_close * 100
+                    breakout_pct = (current - prev_high) / prev_high * 100
+
+                    try:
+                        info = t.info
+                        name = info.get("longName") or info.get("shortName") or ticker
+                        currency = info.get("currency") or "USD"
+                    except Exception:
+                        name = ticker
+                        currency = "USD"
+
+                    if currency == "KRW":
+                        fmt_price = f"₩{current:,.0f}"
+                        fmt_high = f"₩{prev_high:,.0f}"
+                    else:
+                        fmt_price = f"${current:.2f}"
+                        fmt_high = f"${prev_high:.2f}"
+
+                    bp_sign = "+" if breakout_pct >= 0 else ""
+                    cp_sign = "+" if change_pct >= 0 else ""
+
+                    results.append(BreakoutResult(
+                        ticker=ticker,
+                        name=name,
+                        formatted_price=fmt_price,
+                        formatted_prev_high=fmt_high,
+                        formatted_breakout_pct=f"{bp_sign}{breakout_pct:.2f}%",
+                        formatted_change_pct=f"{cp_sign}{change_pct:.2f}%",
+                        change_positive=change_pct >= 0,
+                    ))
+
+            except Exception:
+                pass
+
+        # 돌파율 내림차순 정렬
+        self.scan_results = sorted(results, key=lambda r: r.formatted_breakout_pct, reverse=True)
+        self.scanning = False
+        self.scan_done = True

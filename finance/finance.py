@@ -1,5 +1,5 @@
 import reflex as rx
-from finance.state import State, TechSignal
+from finance.state import State, TechSignal, BreakoutResult, DEFAULT_SCAN_LIST
 
 POPULAR_STOCKS = [
     "AAPL", "MSFT", "GOOGL", "NVDA",
@@ -19,7 +19,7 @@ def header() -> rx.Component:
                     font_weight="800",
                 ),
                 rx.text(
-                    "기술적 분석 기반 매수 / 매도 추천 서비스",
+                    "기술적 분석 기반 매수 / 매도 추천  |  전고점 돌파 스캐너",
                     color="rgba(255,255,255,0.65)",
                     size="3",
                 ),
@@ -35,7 +35,7 @@ def header() -> rx.Component:
     )
 
 
-# ── 검색 섹션 ─────────────────────────────────────────────────────────────────
+# ── 종목 분석 탭 ───────────────────────────────────────────────────────────────
 
 def search_section() -> rx.Component:
     return rx.vstack(
@@ -44,7 +44,7 @@ def search_section() -> rx.Component:
                 placeholder="종목 코드 입력  (예: AAPL, MSFT, 005930.KS)",
                 value=State.ticker_input,
                 on_change=State.set_ticker,
-                on_key_press=State.handle_key_press,
+                on_key_down=State.handle_key_press,
                 size="3",
                 width="420px",
             ),
@@ -62,7 +62,7 @@ def search_section() -> rx.Component:
             *[
                 rx.badge(
                     stock,
-                    on_click=State.search_stock(stock),
+                    on_click=State.quick_search(stock),
                     cursor="pointer",
                     color_scheme="indigo",
                     variant="soft",
@@ -81,8 +81,6 @@ def search_section() -> rx.Component:
     )
 
 
-# ── 종목 정보 카드 ────────────────────────────────────────────────────────────
-
 def info_item(label: str, value) -> rx.Component:
     return rx.vstack(
         rx.text(label, size="1", color="gray", weight="medium"),
@@ -99,11 +97,7 @@ def stock_info_card() -> rx.Component:
             rx.hstack(
                 rx.vstack(
                     rx.heading(State.company_name, size="5", weight="bold"),
-                    rx.badge(
-                        State.current_ticker,
-                        color_scheme="indigo",
-                        variant="surface",
-                    ),
+                    rx.badge(State.current_ticker, color_scheme="indigo", variant="surface"),
                     align="start",
                     spacing="2",
                 ),
@@ -113,7 +107,7 @@ def stock_info_card() -> rx.Component:
                         State.formatted_price,
                         size="7",
                         color=State.price_color,
-                        weight="800",
+                        weight="bold",
                     ),
                     rx.text(
                         State.formatted_change,
@@ -146,8 +140,6 @@ def stock_info_card() -> rx.Component:
     )
 
 
-# ── 주가 차트 ─────────────────────────────────────────────────────────────────
-
 def price_chart() -> rx.Component:
     return rx.card(
         rx.vstack(
@@ -176,8 +168,6 @@ def price_chart() -> rx.Component:
         padding="1.5em",
     )
 
-
-# ── 기술적 분석 카드 ──────────────────────────────────────────────────────────
 
 def signal_badge(signal: str) -> rx.Component:
     return rx.cond(
@@ -225,8 +215,6 @@ def tech_analysis_card() -> rx.Component:
     )
 
 
-# ── 투자 추천 카드 ────────────────────────────────────────────────────────────
-
 def recommendation_card() -> rx.Component:
     return rx.card(
         rx.vstack(
@@ -255,8 +243,7 @@ def recommendation_card() -> rx.Component:
             rx.box(
                 rx.text(
                     "⚠️  본 추천은 기술적 분석에 기반한 참고 정보입니다. "
-                    "실제 투자 결정은 반드시 본인 판단 하에 이루어져야 하며, "
-                    "투자 손실에 대한 책임은 투자자 본인에게 있습니다.",
+                    "실제 투자 결정은 반드시 본인 판단 하에 이루어져야 합니다.",
                     size="1",
                     color="gray",
                     text_align="center",
@@ -277,73 +264,329 @@ def recommendation_card() -> rx.Component:
     )
 
 
+def analysis_tab() -> rx.Component:
+    return rx.vstack(
+        search_section(),
+        rx.cond(
+            State.error != "",
+            rx.box(
+                rx.text("❌  " + State.error, size="2", color="var(--red-11)"),
+                background="var(--red-2)",
+                border="1px solid var(--red-6)",
+                border_radius="8px",
+                padding="0.8em 1.2em",
+                margin_bottom="1.5em",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        rx.cond(
+            State.loading,
+            rx.center(
+                rx.vstack(
+                    rx.spinner(size="3"),
+                    rx.text("데이터를 불러오는 중...", color="gray", size="3"),
+                    align="center",
+                    spacing="4",
+                ),
+                padding="5em",
+            ),
+            rx.cond(
+                State.has_data,
+                rx.vstack(
+                    stock_info_card(),
+                    price_chart(),
+                    rx.grid(
+                        tech_analysis_card(),
+                        recommendation_card(),
+                        columns="2",
+                        gap="4",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                rx.center(
+                    rx.vstack(
+                        rx.text("🔍", font_size="4em"),
+                        rx.text(
+                            "종목 코드를 검색하거나 인기 종목을 클릭하세요",
+                            color="gray",
+                            size="4",
+                        ),
+                        rx.text(
+                            "AAPL, MSFT, 005930.KS 등 글로벌 및 국내 종목 지원",
+                            color="gray",
+                            size="2",
+                        ),
+                        align="center",
+                        spacing="3",
+                    ),
+                    padding="5em",
+                ),
+            ),
+        ),
+        width="100%",
+        spacing="0",
+    )
+
+
+# ── 전고점 돌파 스캐너 탭 ──────────────────────────────────────────────────────
+
+def render_scan_stock_badge(stock: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(stock, size="1", weight="medium"),
+        rx.text(
+            "×",
+            size="1",
+            color="var(--red-9)",
+            cursor="pointer",
+            on_click=State.remove_scan_stock(stock),
+            _hover={"color": "var(--red-11)"},
+            font_weight="bold",
+        ),
+        align="center",
+        background="var(--gray-3)",
+        border_radius="999px",
+        padding="0.25em 0.7em",
+        spacing="1",
+    )
+
+
+def render_breakout_card(result: BreakoutResult) -> rx.Component:
+    return rx.card(
+        rx.hstack(
+            # 왼쪽: 종목 정보
+            rx.vstack(
+                rx.hstack(
+                    rx.badge(result.ticker, color_scheme="indigo", variant="surface", size="2"),
+                    rx.badge(
+                        result.formatted_change_pct,
+                        color_scheme=rx.cond(result.change_positive, "green", "red"),
+                        variant="soft",
+                        size="2",
+                    ),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.text(result.name, size="2", color="gray"),
+                spacing="2",
+                align="start",
+            ),
+            rx.spacer(),
+            # 오른쪽: 가격 및 돌파 정보
+            rx.vstack(
+                rx.text(result.formatted_price, size="5", weight="bold"),
+                rx.hstack(
+                    rx.text("전고점", size="1", color="gray"),
+                    rx.text(result.formatted_prev_high, size="1", color="gray", weight="medium"),
+                    spacing="1",
+                ),
+                rx.badge(
+                    "🚀 " + result.formatted_breakout_pct + " 돌파",
+                    color_scheme="green",
+                    variant="solid",
+                    size="2",
+                ),
+                align="end",
+                spacing="1",
+            ),
+            width="100%",
+            align="center",
+            padding="0.5em",
+        ),
+        width="100%",
+    )
+
+
+def scanner_tab() -> rx.Component:
+    return rx.vstack(
+        # 스캔 종목 설정 카드
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("스캔 대상 종목", size="4", weight="bold"),
+                    rx.badge(State.scan_stock_count, color_scheme="gray", variant="surface"),
+                    rx.spacer(),
+                    rx.button(
+                        "초기화",
+                        on_click=State.reset_scan,
+                        size="1",
+                        variant="ghost",
+                        color_scheme="gray",
+                    ),
+                    align="center",
+                    width="100%",
+                ),
+                rx.separator(width="100%"),
+                # 종목 태그 목록
+                rx.box(
+                    rx.foreach(State.scan_stocks, render_scan_stock_badge),
+                    display="flex",
+                    flex_wrap="wrap",
+                    gap="0.5em",
+                    width="100%",
+                    padding_y="0.5em",
+                ),
+                rx.separator(width="100%"),
+                # 종목 추가
+                rx.hstack(
+                    rx.input(
+                        placeholder="종목 추가  (예: INTC, 삼성전자: 005930.KS)",
+                        value=State.scan_input,
+                        on_change=State.set_scan_input,
+                        on_key_down=State.handle_scan_key,
+                        size="2",
+                        width="320px",
+                    ),
+                    rx.button(
+                        "추가",
+                        on_click=State.add_scan_stock,
+                        size="2",
+                        color_scheme="gray",
+                        variant="soft",
+                    ),
+                    spacing="2",
+                ),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="1.5em",
+        ),
+
+        # 스캔 실행 버튼
+        rx.center(
+            rx.button(
+                rx.cond(
+                    State.scanning,
+                    "스캔 중...",
+                    "🚀  전고점 돌파 스캔 시작",
+                ),
+                on_click=State.run_breakout_scan,
+                loading=State.scanning,
+                size="3",
+                color_scheme="indigo",
+                width="320px",
+            ),
+            width="100%",
+        ),
+
+        # 진행률
+        rx.cond(
+            State.scanning,
+            rx.card(
+                rx.vstack(
+                    rx.hstack(
+                        rx.spinner(size="2"),
+                        rx.text(State.scan_status_text, size="3"),
+                        spacing="3",
+                        align="center",
+                    ),
+                    rx.progress(value=State.scan_progress_pct, width="100%"),
+                    spacing="3",
+                    width="100%",
+                ),
+                width="100%",
+                padding="1.5em",
+            ),
+            rx.box(),
+        ),
+
+        # 결과
+        rx.cond(
+            State.scan_done,
+            rx.vstack(
+                rx.cond(
+                    State.has_scan_results,
+                    rx.vstack(
+                        rx.hstack(
+                            rx.heading("🎯 전고점 돌파 종목", size="4", weight="bold"),
+                            rx.badge(
+                                State.scan_result_count,
+                                color_scheme="green",
+                                variant="solid",
+                                size="2",
+                            ),
+                            rx.text("개 발견", size="3", color="gray"),
+                            align="center",
+                            spacing="2",
+                        ),
+                        rx.text(
+                            "최근 15거래일 이내에 직전 5개월 고점을 돌파한 종목입니다. 돌파율 순으로 정렬됩니다.",
+                            size="2",
+                            color="gray",
+                        ),
+                        rx.foreach(State.scan_results, render_breakout_card),
+                        spacing="3",
+                        width="100%",
+                    ),
+                    rx.center(
+                        rx.vstack(
+                            rx.text("😔", font_size="3em"),
+                            rx.text(
+                                "전고점 돌파 종목이 없습니다.",
+                                size="4",
+                                color="gray",
+                            ),
+                            rx.text(
+                                "스캔 대상 종목을 추가하거나 나중에 다시 시도해보세요.",
+                                size="2",
+                                color="gray",
+                            ),
+                            align="center",
+                            spacing="3",
+                        ),
+                        padding="4em",
+                    ),
+                ),
+                width="100%",
+            ),
+            rx.cond(
+                State.scanning,
+                rx.box(),
+                rx.center(
+                    rx.vstack(
+                        rx.text("🔭", font_size="3em"),
+                        rx.text(
+                            "스캔 시작 버튼을 클릭하면 전고점 돌파 종목을 찾아드립니다",
+                            color="gray",
+                            size="3",
+                        ),
+                        rx.text(
+                            f"현재 {len(DEFAULT_SCAN_LIST)}개 종목 (미국 + 국내 대형주) 스캔 대상",
+                            color="gray",
+                            size="2",
+                        ),
+                        align="center",
+                        spacing="3",
+                    ),
+                    padding="4em",
+                ),
+            ),
+        ),
+
+        spacing="4",
+        width="100%",
+        padding_y="2em",
+    )
+
+
 # ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 def index() -> rx.Component:
     return rx.box(
         header(),
         rx.container(
-            search_section(),
-            # 에러 메시지
-            rx.cond(
-                State.error != "",
-                rx.box(
-                    rx.text(f"❌  {State.error}", size="2", color="var(--red-11)"),
-                    background="var(--red-2)",
-                    border="1px solid var(--red-6)",
-                    border_radius="8px",
-                    padding="0.8em 1.2em",
-                    margin_bottom="1.5em",
-                    width="100%",
+            rx.tabs.root(
+                rx.tabs.list(
+                    rx.tabs.trigger("📊  종목 분석", value="analysis"),
+                    rx.tabs.trigger("🚀  전고점 돌파 스캐너", value="scanner"),
+                    size="2",
                 ),
-                rx.box(),
-            ),
-            # 메인 콘텐츠
-            rx.cond(
-                State.loading,
-                rx.center(
-                    rx.vstack(
-                        rx.spinner(size="3"),
-                        rx.text("데이터를 불러오는 중...", color="gray", size="3"),
-                        align="center",
-                        spacing="4",
-                    ),
-                    padding="5em",
-                ),
-                rx.cond(
-                    State.has_data,
-                    rx.vstack(
-                        stock_info_card(),
-                        price_chart(),
-                        rx.grid(
-                            tech_analysis_card(),
-                            recommendation_card(),
-                            columns="2",
-                            gap="4",
-                        ),
-                        spacing="4",
-                        width="100%",
-                    ),
-                    # 초기 화면
-                    rx.center(
-                        rx.vstack(
-                            rx.text("🔍", font_size="4em"),
-                            rx.text(
-                                "종목 코드를 검색하거나 인기 종목을 클릭하세요",
-                                color="gray",
-                                size="4",
-                            ),
-                            rx.text(
-                                "AAPL, MSFT, 005930.KS 등 글로벌 및 국내 종목 지원",
-                                color="gray",
-                                size="2",
-                            ),
-                            align="center",
-                            spacing="3",
-                        ),
-                        padding="5em",
-                    ),
-                ),
+                rx.tabs.content(analysis_tab(), value="analysis"),
+                rx.tabs.content(scanner_tab(), value="scanner"),
+                default_value="analysis",
+                width="100%",
             ),
             max_width="1200px",
             padding="2em",
