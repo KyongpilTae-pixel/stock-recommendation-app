@@ -317,7 +317,7 @@ class State(rx.State):
 
     @rx.var
     def chart_vwap_label(self) -> str:
-        return f"VWAP ({self.vwap_period_months}개월 누적)"
+        return f"VWAP ({self.vwap_period_months}개월)"
 
     @rx.var
     def vwap_crossover_label(self) -> str:
@@ -460,13 +460,15 @@ class State(rx.State):
 
             ma20_series = closes.rolling(20).mean()
             ma50_series = closes.rolling(50).mean()
-            typical = (highs + lows + closes) / 3
+
+            # VWAP: vwap_period_months 기간의 단일값 → 6개월 차트 전체에 수평선으로 표시
             import pandas as pd
             vwap_cutoff = hist.index[-1] - pd.DateOffset(months=self.vwap_period_months)
             vwap_mask = hist.index >= vwap_cutoff
-            cum_tp_vol = (typical * volumes).where(vwap_mask, 0).cumsum()
-            cum_vol = volumes.where(vwap_mask, 0).cumsum()
-            vwap_series = (cum_tp_vol / cum_vol).where(vwap_mask)  # 기간 이전은 NaN
+            typical = (highs + lows + closes) / 3
+            vwap_value = round(float(
+                (typical[vwap_mask] * volumes[vwap_mask]).sum() / volumes[vwap_mask].sum()
+            ), 2)
 
             def _fmt(v):
                 return round(float(v), 2) if not (v != v) else None  # NaN → None
@@ -477,7 +479,7 @@ class State(rx.State):
                     "close": round(float(row["Close"]), 2),
                     "ma20": _fmt(ma20_series.loc[idx]),
                     "ma50": _fmt(ma50_series.loc[idx]),
-                    "vwap": _fmt(vwap_series.loc[idx]),
+                    "vwap": vwap_value,
                 }
                 for idx, row in hist.iterrows()
             ]
