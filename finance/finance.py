@@ -369,6 +369,11 @@ def render_breakout_card(result: BreakoutResult) -> rx.Component:
                     align="center",
                 ),
                 rx.text(result.name, size="2", color="gray"),
+                rx.hstack(
+                    rx.text("돌파일:", size="1", color="gray"),
+                    rx.text(result.breakout_date, size="1", weight="medium", color="var(--indigo-11)"),
+                    spacing="1",
+                ),
                 spacing="2",
                 align="start",
             ),
@@ -448,6 +453,38 @@ def scanner_tab() -> rx.Component:
                     spacing="2",
                 ),
                 spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="1.5em",
+        ),
+
+        # 전고점 분석 기간 설정
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.text("📅 전고점 분석 기간", size="3", weight="bold"),
+                    rx.badge(State.scan_period_label, color_scheme="indigo", variant="surface"),
+                    spacing="3",
+                    align="center",
+                ),
+                rx.slider(
+                    min=1,
+                    max=12,
+                    step=1,
+                    value=[State.scan_period_months],
+                    on_change=State.set_scan_period,
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.text("1개월", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("최근 15거래일 내 돌파만 인정", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("12개월", size="1", color="gray"),
+                    width="100%",
+                ),
+                spacing="3",
                 width="100%",
             ),
             width="100%",

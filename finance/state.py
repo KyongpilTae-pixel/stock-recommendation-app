@@ -16,17 +16,169 @@ class BreakoutResult(rx.Base):
     formatted_breakout_pct: str = ""
     formatted_change_pct: str = ""
     change_positive: bool = True
+    breakout_date: str = ""  # 전고점 최초 돌파일
 
+
+KOSPI200_LIST = [
+    # IT / 반도체
+    "005930.KS",  # 삼성전자
+    "000660.KS",  # SK하이닉스
+    "009150.KS",  # 삼성전기
+    "066570.KS",  # LG전자
+    "011070.KS",  # LG이노텍
+    "034220.KS",  # LG디스플레이
+    "018260.KS",  # 삼성SDS
+    "042700.KS",  # 한미반도체
+    "000990.KS",  # DB하이텍
+    "240810.KS",  # 원익IPS
+    "036570.KS",  # 엔씨소프트
+    "259960.KS",  # 크래프톤
+    "263750.KS",  # 펄어비스
+    "058470.KS",  # 리노공업
+    # 인터넷 / 플랫폼 / 엔터
+    "035420.KS",  # NAVER
+    "035720.KS",  # 카카오
+    "352820.KS",  # 하이브
+    "041510.KS",  # SM엔터테인먼트
+    "035900.KS",  # JYP엔터테인먼트
+    "122870.KS",  # 와이지엔터테인먼트
+    "030000.KS",  # 제일기획
+    # 바이오 / 헬스케어
+    "207940.KS",  # 삼성바이오로직스
+    "068270.KS",  # 셀트리온
+    "000100.KS",  # 유한양행
+    "128940.KS",  # 한미약품
+    "326030.KS",  # SK바이오팜
+    "302440.KS",  # SK바이오사이언스
+    "006280.KS",  # 녹십자
+    "145020.KS",  # 휴젤
+    "091990.KS",  # 셀트리온헬스케어
+    "196170.KS",  # 알테오젠
+    "141080.KS",  # 레고켐바이오
+    "185750.KS",  # 종근당
+    "170900.KS",  # 동아쏘시오홀딩스
+    "097890.KS",  # 한미사이언스
+    # 자동차
+    "005380.KS",  # 현대차
+    "000270.KS",  # 기아
+    "012330.KS",  # 현대모비스
+    "086280.KS",  # 현대글로비스
+    "004020.KS",  # 현대제철
+    "241560.KS",  # 두산밥캣
+    "018880.KS",  # 한온시스템
+    "161390.KS",  # 한국타이어앤테크놀로지
+    "064350.KS",  # 현대로템
+    # 에너지 / 2차전지
+    "051910.KS",  # LG화학
+    "006400.KS",  # 삼성SDI
+    "373220.KS",  # LG에너지솔루션
+    "247540.KS",  # 에코프로비엠
+    "086520.KS",  # 에코프로
+    "010950.KS",  # S-Oil
+    "096770.KS",  # SK이노베이션
+    "011170.KS",  # 롯데케미칼
+    "003670.KS",  # 포스코퓨처엠
+    "009830.KS",  # 한화솔루션
+    "285130.KS",  # SK케미칼
+    "011790.KS",  # SKC
+    "014680.KS",  # 한솔케미칼
+    "011780.KS",  # 금호석유
+    # 철강 / 소재
+    "005490.KS",  # POSCO홀딩스
+    "010130.KS",  # 고려아연
+    "103140.KS",  # 풍산
+    "004490.KS",  # 세방전지
+    "298050.KS",  # 효성중공업
+    "120110.KS",  # 코오롱인더
+    # 금융
+    "105560.KS",  # KB금융
+    "055550.KS",  # 신한지주
+    "086790.KS",  # 하나금융지주
+    "316140.KS",  # 우리금융지주
+    "032830.KS",  # 삼성생명
+    "000810.KS",  # 삼성화재
+    "088350.KS",  # 한화생명
+    "071050.KS",  # 한국금융지주
+    "175330.KS",  # JB금융지주
+    "024110.KS",  # 기업은행
+    "005940.KS",  # NH투자증권
+    "008560.KS",  # 메리츠증권
+    "006800.KS",  # 미래에셋증권
+    "039490.KS",  # 키움증권
+    "001450.KS",  # 현대해상
+    "000060.KS",  # 메리츠화재
+    # 통신
+    "017670.KS",  # SK텔레콤
+    "030200.KS",  # KT
+    "032640.KS",  # LG유플러스
+    # 조선 / 중공업 / 방산
+    "329180.KS",  # HD현대중공업
+    "267250.KS",  # HD현대
+    "009540.KS",  # HD한국조선해양
+    "010140.KS",  # 삼성중공업
+    "042660.KS",  # 한화오션
+    "047810.KS",  # 한국항공우주
+    "012450.KS",  # 한화에어로스페이스
+    "272210.KS",  # 한화시스템
+    "079550.KS",  # LIG넥스원
+    "010620.KS",  # 현대미포조선
+    # 건설 / 인프라
+    "000720.KS",  # 현대건설
+    "047040.KS",  # 대우건설
+    "006360.KS",  # GS건설
+    "294870.KS",  # HDC현대산업개발
+    "012630.KS",  # HDC
+    # 지주 / 복합
+    "034730.KS",  # SK
+    "000880.KS",  # 한화
+    "003550.KS",  # LG
+    "028260.KS",  # 삼성물산
+    "078930.KS",  # GS
+    "001040.KS",  # CJ
+    "002380.KS",  # KCC
+    "010060.KS",  # OCI홀딩스
+    # 유통 / 소비재
+    "004170.KS",  # 신세계
+    "023530.KS",  # 롯데쇼핑
+    "139480.KS",  # 이마트
+    "007070.KS",  # GS리테일
+    "282330.KS",  # BGF리테일
+    "069960.KS",  # 현대백화점
+    "057050.KS",  # 현대홈쇼핑
+    "033780.KS",  # KT&G
+    "021240.KS",  # 코웨이
+    "090430.KS",  # 아모레퍼시픽
+    "002790.KS",  # 아모레G
+    "008770.KS",  # 호텔신라
+    "007310.KS",  # 오뚜기
+    "003230.KS",  # 삼양식품
+    "271560.KS",  # 오리온
+    "145990.KS",  # 삼양사
+    "000080.KS",  # 하이트진로
+    # 식품 / 필수소비재
+    "097950.KS",  # CJ제일제당
+    "024720.KS",  # 코스맥스
+    # 운송 / 물류
+    "003490.KS",  # 대한항공
+    "011200.KS",  # HMM
+    "000120.KS",  # CJ대한통운
+    # 에너지 / 전력
+    "015760.KS",  # 한국전력
+    "036460.KS",  # 한국가스공사
+    "051600.KS",  # 한전KPS
+    # 기타 제조
+    "058430.KS",  # 포스코인터내셔널
+    "012750.KS",  # 에스원
+    "267270.KS",  # HD현대건설기계
+    "100840.KS",  # SNT에너지
+]
 
 DEFAULT_SCAN_LIST = [
     # 미국 대형주
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA",
     "META", "JPM", "V", "MA", "UNH", "COST",
     "AVGO", "NFLX", "ADBE", "AMD",
-    # 국내 대형주
-    "005930.KS", "000660.KS", "035720.KS",
-    "005380.KS", "051910.KS", "006400.KS", "207940.KS", "373220.KS",
-]
+] + KOSPI200_LIST
 
 
 class State(rx.State):
@@ -62,6 +214,8 @@ class State(rx.State):
     scan_progress: int = 0
     scan_total: int = 0
     scan_done: bool = False
+    scan_period_months: int = 6   # 전고점 분석 기간 (1~12개월)
+    scan_recent_days: int = 15    # 최근 N 거래일 내 돌파 인정
 
     # ── Computed vars (분석) ──────────────────────────────────────────────────
 
@@ -114,7 +268,13 @@ class State(rx.State):
 
     @rx.var
     def scan_status_text(self) -> str:
-        return f"스캔 중... ({self.scan_progress} / {self.scan_total})"
+        if self.scan_progress == 0:
+            return "Yahoo Finance 데이터 다운로드 중..."
+        return f"종목 분석 중... ({self.scan_progress} / {self.scan_total})"
+
+    @rx.var
+    def scan_period_label(self) -> str:
+        return f"{self.scan_period_months}개월"
 
     @rx.var
     def scan_result_count(self) -> int:
@@ -357,8 +517,13 @@ class State(rx.State):
         self.scan_results = []
         self.scan_done = False
 
+    def set_scan_period(self, value: list):
+        """전고점 분석 기간 슬라이더"""
+        if value:
+            self.scan_period_months = int(value[0])
+
     async def run_breakout_scan(self):
-        """전고점 돌파 종목 스캔"""
+        """전고점 돌파 종목 스캔 (배치 다운로드 - Yahoo Finance 1회 요청)"""
         if self.scanning:
             return
 
@@ -371,36 +536,67 @@ class State(rx.State):
 
         import yfinance as yf
 
+        tickers = list(self.scan_stocks)
+        period_str = "1y" if self.scan_period_months >= 12 else f"{self.scan_period_months}mo"
+
+        # ── 1회 배치 다운로드 (Yahoo Finance 단일 요청) ──────────────────────
+        try:
+            raw = yf.download(
+                tickers,
+                period=period_str,
+                auto_adjust=True,
+                progress=False,
+            )
+        except Exception:
+            self.scanning = False
+            self.scan_done = True
+            return
+
+        is_multi = len(tickers) > 1
         results = []
 
-        for i, ticker in enumerate(list(self.scan_stocks)):
+        for i, ticker in enumerate(tickers):
             self.scan_progress = i + 1
             yield
 
             try:
-                t = yf.Ticker(ticker)
-                hist = t.history(period="6mo")
+                if is_multi:
+                    if ticker not in raw["Close"].columns:
+                        continue
+                    close_s = raw["Close"][ticker].dropna()
+                    high_s = raw["High"][ticker].dropna()
+                else:
+                    close_s = raw["Close"].dropna()
+                    high_s = raw["High"].dropna()
 
-                if len(hist) < 30:
+                if len(close_s) < 10:
                     continue
 
-                # 전고점: 최근 15거래일 이전 구간의 최고가
-                lookback = max(len(hist) - 15, 20)
-                prev_high = float(hist["High"].iloc[:lookback].max())
-                current = float(hist["Close"].iloc[-1])
+                lookback = max(len(close_s) - self.scan_recent_days, 5)
+                prev_high = float(high_s.iloc[:lookback].max())
+                current = float(close_s.iloc[-1])
 
                 if current > prev_high:
-                    prev_close = float(hist["Close"].iloc[-2]) if len(hist) > 1 else current
+                    # 최초 돌파일 탐색
+                    recent_closes = close_s.iloc[lookback:]
+                    crossed = recent_closes[recent_closes > prev_high]
+                    breakout_date = crossed.index[0].strftime("%Y.%m.%d") if not crossed.empty else "-"
+
+                    prev_close = float(close_s.iloc[-2]) if len(close_s) > 1 else current
                     change_pct = (current - prev_close) / prev_close * 100
                     breakout_pct = (current - prev_high) / prev_high * 100
 
+                    # .KS/.KQ면 KRW, 나머지 USD (info 호출 최소화)
+                    is_kr = ticker.endswith(".KS") or ticker.endswith(".KQ")
+                    currency = "KRW" if is_kr else "USD"
+
+                    # 돌파 종목만 info 요청 (2번째 데이터 소스: Yahoo Finance info)
                     try:
-                        info = t.info
+                        info = yf.Ticker(ticker).info
                         name = info.get("longName") or info.get("shortName") or ticker
-                        currency = info.get("currency") or "USD"
+                        currency = info.get("currency") or currency
                     except Exception:
                         name = ticker
-                        currency = "USD"
 
                     if currency == "KRW":
                         fmt_price = f"₩{current:,.0f}"
@@ -420,6 +616,7 @@ class State(rx.State):
                         formatted_breakout_pct=f"{bp_sign}{breakout_pct:.2f}%",
                         formatted_change_pct=f"{cp_sign}{change_pct:.2f}%",
                         change_positive=change_pct >= 0,
+                        breakout_date=breakout_date,
                     ))
 
             except Exception:
