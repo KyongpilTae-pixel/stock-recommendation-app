@@ -316,6 +316,10 @@ class State(rx.State):
         return f"{self.vwap_period_months}개월"
 
     @rx.var
+    def chart_vwap_label(self) -> str:
+        return f"VWAP ({self.vwap_period_months}개월 누적)"
+
+    @rx.var
     def vwap_crossover_label(self) -> str:
         d = self.vwap_crossover_days
         if d == 7:
@@ -457,9 +461,12 @@ class State(rx.State):
             ma20_series = closes.rolling(20).mean()
             ma50_series = closes.rolling(50).mean()
             typical = (highs + lows + closes) / 3
-            cum_tp_vol = (typical * volumes).cumsum()
-            cum_vol = volumes.cumsum()
-            vwap_series = cum_tp_vol / cum_vol
+            import pandas as pd
+            vwap_cutoff = hist.index[-1] - pd.DateOffset(months=self.vwap_period_months)
+            vwap_mask = hist.index >= vwap_cutoff
+            cum_tp_vol = (typical * volumes).where(vwap_mask, 0).cumsum()
+            cum_vol = volumes.where(vwap_mask, 0).cumsum()
+            vwap_series = (cum_tp_vol / cum_vol).where(vwap_mask)  # 기간 이전은 NaN
 
             def _fmt(v):
                 return round(float(v), 2) if not (v != v) else None  # NaN → None
