@@ -236,6 +236,9 @@ class State(rx.State):
     vwap_scan_done: bool = False
     vwap_period_months: int = 3   # VWAP 계산 기간 (기본 3개월)
 
+    # ── 탭 상태 ─────────────────────────────────────────────────────────────────
+    active_tab: str = "analysis"
+
     # ── Computed vars (분석) ──────────────────────────────────────────────────
 
     @rx.var
@@ -344,6 +347,12 @@ class State(rx.State):
         self.ticker_input = ticker.upper()
         return State.search_stock
 
+    def open_stock_from_scanner(self, ticker: str):
+        """스캐너 결과 클릭 시 종목 분석 탭으로 이동"""
+        self.active_tab = "analysis"
+        self.ticker_input = ticker.upper()
+        return State.search_stock
+
     async def search_stock(self):
         """종목 검색 및 기술적 분석 수행"""
         if not self.ticker_input.strip():
@@ -428,17 +437,34 @@ class State(rx.State):
                 self.loading = False
                 return
 
+            closes = hist["Close"]
+            highs = hist["High"]
+            lows = hist["Low"]
+            volumes = hist["Volume"]
+
+            ma20_series = closes.rolling(20).mean()
+            ma50_series = closes.rolling(50).mean()
+            typical = (highs + lows + closes) / 3
+            cum_tp_vol = (typical * volumes).cumsum()
+            cum_vol = volumes.cumsum()
+            vwap_series = cum_tp_vol / cum_vol
+
+            def _fmt(v):
+                return round(float(v), 2) if not (v != v) else None  # NaN → None
+
             self.chart_data = [
                 {
                     "date": idx.strftime("%m/%d"),
                     "close": round(float(row["Close"]), 2),
+                    "ma20": _fmt(ma20_series.loc[idx]),
+                    "ma50": _fmt(ma50_series.loc[idx]),
+                    "vwap": _fmt(vwap_series.loc[idx]),
                 }
                 for idx, row in hist.iterrows()
             ]
 
-            closes = hist["Close"]
-            ma20 = float(closes.rolling(20).mean().iloc[-1])
-            ma50 = float(closes.rolling(50).mean().iloc[-1])
+            ma20 = float(ma20_series.iloc[-1])
+            ma50 = float(ma50_series.iloc[-1])
             current = float(closes.iloc[-1])
 
             delta = closes.diff()

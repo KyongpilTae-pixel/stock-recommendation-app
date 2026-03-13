@@ -143,7 +143,24 @@ def stock_info_card() -> rx.Component:
 def price_chart() -> rx.Component:
     return rx.card(
         rx.vstack(
-            rx.heading("📊 주가 차트  (6개월)", size="4", weight="bold"),
+            rx.hstack(
+                rx.heading("📊 주가 차트  (6개월)", size="4", weight="bold"),
+                rx.spacer(),
+                rx.hstack(
+                    rx.box(width="12px", height="3px", background="#6366f1", border_radius="2px"),
+                    rx.text("종가", size="1", color="gray"),
+                    rx.box(width="12px", height="2px", background="#f59e0b", border_radius="2px"),
+                    rx.text("MA20", size="1", color="gray"),
+                    rx.box(width="12px", height="2px", background="#ef4444", border_radius="2px"),
+                    rx.text("MA50", size="1", color="gray"),
+                    rx.box(width="12px", height="2px", background="#10b981", border_radius="2px"),
+                    rx.text("VWAP", size="1", color="gray"),
+                    spacing="2",
+                    align="center",
+                ),
+                width="100%",
+                align="center",
+            ),
             rx.recharts.responsive_container(
                 rx.recharts.line_chart(
                     rx.recharts.line(
@@ -151,6 +168,31 @@ def price_chart() -> rx.Component:
                         stroke="#6366f1",
                         stroke_width=2,
                         dot=False,
+                        name="종가",
+                    ),
+                    rx.recharts.line(
+                        data_key="ma20",
+                        stroke="#f59e0b",
+                        stroke_width=1.5,
+                        dot=False,
+                        name="MA20",
+                        stroke_dasharray="4 2",
+                    ),
+                    rx.recharts.line(
+                        data_key="ma50",
+                        stroke="#ef4444",
+                        stroke_width=1.5,
+                        dot=False,
+                        name="MA50",
+                        stroke_dasharray="4 2",
+                    ),
+                    rx.recharts.line(
+                        data_key="vwap",
+                        stroke="#10b981",
+                        stroke_width=1.5,
+                        dot=False,
+                        name="VWAP",
+                        stroke_dasharray="6 3",
                     ),
                     rx.recharts.x_axis(data_key="date"),
                     rx.recharts.y_axis(domain=["auto", "auto"]),
@@ -159,7 +201,7 @@ def price_chart() -> rx.Component:
                     data=State.chart_data,
                 ),
                 width="100%",
-                height=300,
+                height=320,
             ),
             spacing="4",
             width="100%",
@@ -453,7 +495,10 @@ def render_breakout_card(result: BreakoutResult) -> rx.Component:
             align="center",
             padding="0.5em",
         ),
+        on_click=State.open_stock_from_scanner(result.ticker),
+        cursor="pointer",
         width="100%",
+        _hover={"box_shadow": "0 0 0 2px var(--indigo-8)"},
     )
 
 
@@ -502,7 +547,10 @@ def render_vwap_card(result: VWAPResult) -> rx.Component:
             align="center",
             padding="0.5em",
         ),
+        on_click=State.open_stock_from_scanner(result.ticker),
+        cursor="pointer",
         width="100%",
+        _hover={"box_shadow": "0 0 0 2px var(--violet-8)"},
     )
 
 
@@ -764,7 +812,8 @@ def index() -> rx.Component:
                 ),
                 rx.tabs.content(analysis_tab(), value="analysis"),
                 rx.tabs.content(scanner_tab(), value="scanner"),
-                default_value="analysis",
+                value=State.active_tab,
+                on_change=State.set_active_tab,
                 width="100%",
             ),
             max_width="1200px",
