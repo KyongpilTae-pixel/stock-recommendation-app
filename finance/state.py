@@ -1,5 +1,6 @@
 import reflex as rx
 from typing import List
+from finance.vwap import VWAPResult, calc_chart_vwap, calc_single_vwap, find_vwap_crossover
 
 
 class TechSignal(rx.Base):
@@ -17,17 +18,6 @@ class BreakoutResult(rx.Base):
     formatted_change_pct: str = ""
     change_positive: bool = True
     breakout_date: str = ""  # 전고점 최초 돌파일
-
-
-class VWAPResult(rx.Base):
-    ticker: str = ""
-    name: str = ""
-    formatted_price: str = ""
-    formatted_vwap: str = ""
-    formatted_vwap_pct: str = ""   # VWAP 대비 %
-    formatted_change_pct: str = ""
-    change_positive: bool = True
-    crossover_date: str = ""       # VWAP 상단 돌파일
 
 
 KOSPI200_LIST = [
@@ -460,10 +450,7 @@ class State(rx.State):
 
             ma20_series = closes.rolling(20).mean()
             ma50_series = closes.rolling(50).mean()
-            typical = (highs + lows + closes) / 3
-            cum_tp_vol = (typical * volumes).cumsum()
-            cum_vol = volumes.cumsum()
-            vwap_series = cum_tp_vol / cum_vol
+            vwap_series = calc_chart_vwap(closes, highs, lows, volumes)
 
             def _fmt(v):
                 return round(float(v), 2) if not (v != v) else None  # NaN → None
@@ -776,30 +763,18 @@ class State(rx.State):
                 if len(close_s) < 10 or vol_s.sum() == 0:
                     continue
 
-                # ── VWAP 계산: Σ(TP × Volume) / Σ(Volume) ──────────────────
-                typical = (high_s + low_s + close_s) / 3
-                vwap = float((typical * vol_s).sum() / vol_s.sum())
+                # ── VWAP 계산 및 교차일 탐색 ────────────────────────────────
+                vwap = calc_single_vwap(close_s, high_s, low_s, vol_s)
                 current = float(close_s.iloc[-1])
 
-                # 현재가가 VWAP 아래면 스킵
                 if current <= vwap:
                     continue
 
-                # ── VWAP 상단 교차일 탐색 (아래→위 교차) ────────────────────
-                above = close_s > vwap
-                prev_above = above.shift(1).fillna(False)
-                crossover = above & (~prev_above)
-                crossed_dates = crossover[crossover]
+                crossover_date, days_since = find_vwap_crossover(close_s, vwap)
 
-                if crossed_dates.empty:
-                    # 기간 내 내내 위에 있었으면 스킵 (최근 돌파 아님)
+                if crossover_date is None:
                     continue
 
-                last_cross_idx = crossed_dates.index[-1]
-                crossover_date = last_cross_idx.strftime("%Y.%m.%d")
-
-                # 설정된 캘린더일 이내 돌파만 포함
-                days_since = (close_s.index[-1] - last_cross_idx).days
                 if days_since > self.vwap_crossover_days:
                     continue
 

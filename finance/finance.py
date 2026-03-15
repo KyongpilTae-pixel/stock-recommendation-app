@@ -1,5 +1,6 @@
 import reflex as rx
-from finance.state import State, TechSignal, BreakoutResult, VWAPResult, DEFAULT_SCAN_LIST
+from finance.state import State, TechSignal, BreakoutResult, DEFAULT_SCAN_LIST
+from finance.vwap import VWAPResult
 
 POPULAR_STOCKS = [
     "AAPL", "MSFT", "GOOGL", "NVDA",
