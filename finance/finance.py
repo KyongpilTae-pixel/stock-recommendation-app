@@ -1,6 +1,6 @@
 import reflex as rx
 from finance.state import State, TechSignal, BreakoutResult, DEFAULT_SCAN_LIST
-from finance.vwap import VWAPResult
+from finance.vwap import VWAPResult, WatchlistResult
 
 POPULAR_STOCKS = [
     "AAPL", "MSFT", "GOOGL", "NVDA",
@@ -496,9 +496,22 @@ def render_breakout_card(result: BreakoutResult) -> rx.Component:
             align="center",
             padding="0.5em",
         ),
+        rx.box(
+            rx.button(
+                "⭐ 관심",
+                on_click=State.add_to_watchlist(result.ticker),
+                size="1",
+                variant="ghost",
+                color_scheme="amber",
+            ),
+            position="absolute",
+            top="0.5em",
+            right="0.5em",
+        ),
         on_click=State.open_stock_from_scanner(result.ticker),
         cursor="pointer",
         width="100%",
+        position="relative",
         _hover={"box_shadow": "0 0 0 2px var(--indigo-8)"},
     )
 
@@ -548,9 +561,22 @@ def render_vwap_card(result: VWAPResult) -> rx.Component:
             align="center",
             padding="0.5em",
         ),
+        rx.box(
+            rx.button(
+                "⭐ 관심",
+                on_click=State.add_to_watchlist(result.ticker),
+                size="1",
+                variant="ghost",
+                color_scheme="amber",
+            ),
+            position="absolute",
+            top="0.5em",
+            right="0.5em",
+        ),
         on_click=State.open_stock_from_scanner(result.ticker),
         cursor="pointer",
         width="100%",
+        position="relative",
         _hover={"box_shadow": "0 0 0 2px var(--violet-8)"},
     )
 
@@ -821,6 +847,210 @@ def scanner_tab() -> rx.Component:
     )
 
 
+# ── 관심종목 탭 ───────────────────────────────────────────────────────────────
+
+def render_watchlist_badge(ticker: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(ticker, size="1", weight="medium", cursor="pointer",
+                on_click=State.open_stock_from_scanner(ticker),
+                _hover={"color": "var(--indigo-11)"}),
+        rx.text(
+            "×", size="1", color="var(--red-9)", cursor="pointer",
+            on_click=State.remove_from_watchlist(ticker),
+            font_weight="bold",
+            _hover={"color": "var(--red-11)"},
+        ),
+        align="center",
+        background="var(--amber-3)",
+        border="1px solid var(--amber-6)",
+        border_radius="999px",
+        padding="0.25em 0.7em",
+        spacing="1",
+    )
+
+
+def render_watchlist_result_card(result: WatchlistResult) -> rx.Component:
+    status_color = rx.cond(
+        result.has_downward_cross, "red",
+        rx.cond(result.vwap_status == "below", "orange", "green")
+    )
+    status_label = rx.cond(
+        result.has_downward_cross, "⚠️ VWAP 하향 돌파",
+        rx.cond(result.vwap_status == "below", "VWAP 하단", "VWAP 상단")
+    )
+    return rx.card(
+        rx.hstack(
+            rx.vstack(
+                rx.hstack(
+                    rx.badge(result.ticker, color_scheme="amber", variant="surface", size="2"),
+                    rx.badge(
+                        result.formatted_change_pct,
+                        color_scheme=rx.cond(result.change_positive, "green", "red"),
+                        variant="soft", size="2",
+                    ),
+                    spacing="2", align="center",
+                ),
+                rx.text(result.name, size="2", color="gray"),
+                rx.cond(
+                    result.has_downward_cross,
+                    rx.hstack(
+                        rx.text("교차일:", size="1", color="gray"),
+                        rx.text(result.crossover_date, size="1", weight="medium",
+                                color="var(--red-11)"),
+                        spacing="1",
+                    ),
+                    rx.box(),
+                ),
+                spacing="2", align="start",
+            ),
+            rx.spacer(),
+            rx.vstack(
+                rx.text(result.formatted_price, size="5", weight="bold"),
+                rx.hstack(
+                    rx.text("VWAP", size="1", color="gray"),
+                    rx.text(result.formatted_vwap, size="1", color="gray", weight="medium"),
+                    spacing="1",
+                ),
+                rx.badge(status_label, color_scheme=status_color, variant="solid", size="2"),
+                align="end", spacing="1",
+            ),
+            width="100%", align="center", padding="0.5em",
+        ),
+        on_click=State.open_stock_from_scanner(result.ticker),
+        cursor="pointer",
+        width="100%",
+        _hover={"box_shadow": "0 0 0 2px var(--amber-8)"},
+        border=rx.cond(result.has_downward_cross, "2px solid var(--red-7)", "none"),
+    )
+
+
+def watchlist_tab() -> rx.Component:
+    return rx.vstack(
+        # 관심종목 목록 카드
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("⭐ 관심종목", size="4", weight="bold"),
+                    rx.badge(State.watchlist_count, color_scheme="amber", variant="surface"),
+                    rx.spacer(),
+                    rx.text("종목 클릭 시 분석 탭으로 이동  ·  × 클릭 시 제거",
+                            size="1", color="gray"),
+                    align="center", width="100%",
+                ),
+                rx.separator(width="100%"),
+                rx.cond(
+                    State.watchlist_count > 0,
+                    rx.box(
+                        rx.foreach(State.watchlist, render_watchlist_badge),
+                        display="flex", flex_wrap="wrap", gap="0.5em",
+                        width="100%", padding_y="0.5em",
+                    ),
+                    rx.center(
+                        rx.text("스캐너에서 ⭐ 관심 버튼을 눌러 종목을 추가하세요",
+                                color="gray", size="2"),
+                        padding_y="1em",
+                    ),
+                ),
+                spacing="4", width="100%",
+            ),
+            width="100%", padding="1.5em",
+        ),
+        # VWAP 하향 돌파 스캔 설정
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.text("⏱️ 하향 교차 탐지 기간", size="3", weight="bold"),
+                    rx.badge(State.watchlist_crossover_label, color_scheme="red",
+                             variant="surface"),
+                    rx.spacer(),
+                    rx.text(f"VWAP 계산: ", size="2", color="gray"),
+                    rx.badge(State.vwap_period_label, color_scheme="violet", variant="soft"),
+                    spacing="3", align="center", width="100%",
+                ),
+                rx.slider(
+                    min=1, max=30, step=1,
+                    value=[State.watchlist_crossover_days],
+                    on_change=State.set_watchlist_crossover_days,
+                    width="100%",
+                    color_scheme="red",
+                ),
+                rx.hstack(
+                    rx.text("1일", size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("이 기간 이내에 VWAP 상단→하단 교차한 종목을 알림",
+                            size="1", color="gray"),
+                    rx.spacer(),
+                    rx.text("30일", size="1", color="gray"),
+                    width="100%",
+                ),
+                spacing="3", width="100%",
+            ),
+            width="100%", padding="1.5em",
+        ),
+        # 스캔 버튼
+        rx.center(
+            rx.button(
+                "🔍  VWAP 하향 돌파 스캔",
+                on_click=State.run_watchlist_scan,
+                loading=State.watchlist_scanning,
+                disabled=State.watchlist_count == 0,
+                size="3",
+                color_scheme="red",
+                width="320px",
+            ),
+            width="100%",
+        ),
+        # 진행률
+        _scan_progress_card(
+            State.watchlist_scanning,
+            State.watchlist_status_text,
+            State.watchlist_progress_pct,
+        ),
+        # 결과
+        rx.cond(
+            State.watchlist_scan_done,
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("스캔 결과", size="4", weight="bold"),
+                    rx.cond(
+                        State.downward_cross_count > 0,
+                        rx.badge(
+                            "⚠️ 하향 돌파 " + State.downward_cross_count.to_string() + "종목",
+                            color_scheme="red", variant="solid", size="2",
+                        ),
+                        rx.badge("이상 없음", color_scheme="green", variant="soft", size="2"),
+                    ),
+                    rx.badge(
+                        "전체 " + State.watchlist_scan_result_count.to_string() + "종목",
+                        color_scheme="gray", variant="surface", size="2",
+                    ),
+                    align="center", spacing="3",
+                ),
+                rx.text(
+                    "⚠️ 빨간 테두리 = VWAP 하향 돌파  ·  주황 = VWAP 하단  ·  초록 = VWAP 상단",
+                    size="2", color="gray",
+                ),
+                rx.foreach(State.watchlist_scan_results, render_watchlist_result_card),
+                spacing="3", width="100%",
+            ),
+            rx.cond(
+                State.watchlist_scanning,
+                rx.box(),
+                rx.center(
+                    rx.vstack(
+                        rx.text("🔍", font_size="3em"),
+                        rx.text("스캔 버튼을 누르면 관심종목의 VWAP 상태를 확인합니다",
+                                color="gray", size="3"),
+                        align="center", spacing="3",
+                    ),
+                    padding="4em",
+                ),
+            ),
+        ),
+        spacing="4", width="100%", padding_y="2em",
+    )
+
+
 # ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 def index() -> rx.Component:
@@ -831,10 +1061,12 @@ def index() -> rx.Component:
                 rx.tabs.list(
                     rx.tabs.trigger("📊  종목 분석", value="analysis"),
                     rx.tabs.trigger("🚀  전고점 돌파 스캐너", value="scanner"),
+                    rx.tabs.trigger("⭐  관심종목", value="watchlist"),
                     size="2",
                 ),
                 rx.tabs.content(analysis_tab(), value="analysis"),
                 rx.tabs.content(scanner_tab(), value="scanner"),
+                rx.tabs.content(watchlist_tab(), value="watchlist"),
                 value=State.active_tab,
                 on_change=State.set_active_tab,
                 width="100%",

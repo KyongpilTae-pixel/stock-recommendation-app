@@ -1,6 +1,10 @@
 import reflex as rx
 from typing import List
-from finance.vwap import VWAPResult, calc_chart_vwap, calc_single_vwap, find_vwap_crossover
+from finance.vwap import (
+    VWAPResult, WatchlistResult,
+    calc_chart_vwap, calc_single_vwap,
+    find_vwap_crossover, find_vwap_downward_crossover,
+)
 
 
 class TechSignal(rx.Base):
@@ -227,6 +231,15 @@ class State(rx.State):
     vwap_period_months: int = 3   # VWAP 계산 기간 (기본 3개월)
     vwap_crossover_days: int = 7  # 돌파 시점 제한 (캘린더일, 기본 1주일)
 
+    # ── 관심종목 ────────────────────────────────────────────────────────────────
+    watchlist: list = []
+    watchlist_scan_results: List[WatchlistResult] = []
+    watchlist_scanning: bool = False
+    watchlist_scan_progress: int = 0
+    watchlist_scan_total: int = 0
+    watchlist_scan_done: bool = False
+    watchlist_crossover_days: int = 7  # 하향 교차 탐지 기간 (기본 1주일)
+
     # ── 탭 상태 ─────────────────────────────────────────────────────────────────
     active_tab: str = "analysis"
 
@@ -339,6 +352,43 @@ class State(rx.State):
     @rx.var
     def has_scan_results(self) -> bool:
         return len(self.scan_results) > 0
+
+    # ── Computed vars (관심종목) ──────────────────────────────────────────────
+
+    @rx.var
+    def watchlist_count(self) -> int:
+        return len(self.watchlist)
+
+    @rx.var
+    def watchlist_progress_pct(self) -> int:
+        if self.watchlist_scan_total == 0:
+            return 0
+        return int(self.watchlist_scan_progress / self.watchlist_scan_total * 100)
+
+    @rx.var
+    def watchlist_status_text(self) -> str:
+        if self.watchlist_scan_progress == 0:
+            return "데이터 다운로드 중..."
+        return f"분석 중... ({self.watchlist_scan_progress} / {self.watchlist_scan_total})"
+
+    @rx.var
+    def watchlist_crossover_label(self) -> str:
+        d = self.watchlist_crossover_days
+        if d == 7:
+            return "1주일"
+        if d == 14:
+            return "2주일"
+        if d % 7 == 0:
+            return f"{d // 7}주일"
+        return f"{d}일"
+
+    @rx.var
+    def downward_cross_count(self) -> int:
+        return sum(1 for r in self.watchlist_scan_results if r.has_downward_cross)
+
+    @rx.var
+    def watchlist_scan_result_count(self) -> int:
+        return len(self.watchlist_scan_results)
 
     # ── Event handlers (분석) ─────────────────────────────────────────────────
 
@@ -821,3 +871,118 @@ class State(rx.State):
         self.vwap_scan_results = sorted(results, key=lambda r: r.formatted_vwap_pct, reverse=True)
         self.vwap_scanning = False
         self.vwap_scan_done = True
+
+    # ── 관심종목 ──────────────────────────────────────────────────────────────
+
+    def add_to_watchlist(self, ticker: str):
+        if ticker and ticker not in self.watchlist:
+            self.watchlist = list(self.watchlist) + [ticker]
+
+    def remove_from_watchlist(self, ticker: str):
+        self.watchlist = [t for t in self.watchlist if t != ticker]
+
+    def set_watchlist_crossover_days(self, value: list):
+        if value:
+            self.watchlist_crossover_days = int(value[0])
+
+    async def run_watchlist_scan(self):
+        """관심종목 VWAP 상단→하단 교차 스캔"""
+        if self.watchlist_scanning or not self.watchlist:
+            return
+
+        self.watchlist_scanning = True
+        self.watchlist_scan_results = []
+        self.watchlist_scan_done = False
+        self.watchlist_scan_progress = 0
+        self.watchlist_scan_total = len(self.watchlist)
+        yield
+
+        import yfinance as yf
+
+        tickers = list(self.watchlist)
+        period_str = "1y" if self.vwap_period_months >= 12 else f"{self.vwap_period_months}mo"
+
+        try:
+            raw = yf.download(tickers, period=period_str, auto_adjust=True, progress=False)
+        except Exception:
+            self.watchlist_scanning = False
+            self.watchlist_scan_done = True
+            return
+
+        is_multi = len(tickers) > 1
+        results = []
+
+        for i, ticker in enumerate(tickers):
+            self.watchlist_scan_progress = i + 1
+            yield
+
+            try:
+                if is_multi:
+                    if ticker not in raw["Close"].columns:
+                        continue
+                    close_s = raw["Close"][ticker].dropna()
+                    high_s  = raw["High"][ticker].dropna()
+                    low_s   = raw["Low"][ticker].dropna()
+                    vol_s   = raw["Volume"][ticker].dropna()
+                else:
+                    close_s = raw["Close"].dropna()
+                    high_s  = raw["High"].dropna()
+                    low_s   = raw["Low"].dropna()
+                    vol_s   = raw["Volume"].dropna()
+
+                if len(close_s) < 10 or vol_s.sum() == 0:
+                    continue
+
+                vwap = calc_single_vwap(close_s, high_s, low_s, vol_s)
+                current = float(close_s.iloc[-1])
+                vwap_status = "above" if current > vwap else "below"
+
+                crossover_date, _ = find_vwap_downward_crossover(
+                    close_s, vwap, self.watchlist_crossover_days
+                )
+                has_cross = crossover_date is not None
+
+                prev_close = float(close_s.iloc[-2]) if len(close_s) > 1 else current
+                change_pct = (current - prev_close) / prev_close * 100
+
+                is_kr = ticker.endswith(".KS") or ticker.endswith(".KQ")
+                currency = "KRW" if is_kr else "USD"
+
+                try:
+                    info = yf.Ticker(ticker).info
+                    name = info.get("longName") or info.get("shortName") or ticker
+                    currency = info.get("currency") or currency
+                except Exception:
+                    name = ticker
+
+                if currency == "KRW":
+                    fmt_price = f"₩{current:,.0f}"
+                    fmt_vwap  = f"₩{vwap:,.0f}"
+                else:
+                    fmt_price = f"${current:.2f}"
+                    fmt_vwap  = f"${vwap:.2f}"
+
+                cp_sign = "+" if change_pct >= 0 else ""
+
+                results.append(WatchlistResult(
+                    ticker=ticker,
+                    name=name,
+                    formatted_price=fmt_price,
+                    formatted_vwap=fmt_vwap,
+                    vwap_status=vwap_status,
+                    has_downward_cross=has_cross,
+                    crossover_date=crossover_date or "",
+                    formatted_change_pct=f"{cp_sign}{change_pct:.2f}%",
+                    change_positive=change_pct >= 0,
+                ))
+
+            except Exception:
+                pass
+
+        # 하향 돌파 → VWAP 하단 → VWAP 상단 순 정렬
+        results.sort(key=lambda r: (
+            0 if r.has_downward_cross else (1 if r.vwap_status == "below" else 2)
+        ))
+        self.watchlist_scan_results = results
+        self.watchlist_scanning = False
+        self.watchlist_scan_done = True

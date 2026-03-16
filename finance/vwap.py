@@ -4,6 +4,18 @@ import reflex as rx
 
 # ── 데이터 클래스 ──────────────────────────────────────────────────────────────
 
+class WatchlistResult(rx.Base):
+    ticker: str = ""
+    name: str = ""
+    formatted_price: str = ""
+    formatted_vwap: str = ""
+    vwap_status: str = ""          # "above" / "below"
+    has_downward_cross: bool = False
+    crossover_date: str = ""       # VWAP 상단→하단 교차일
+    formatted_change_pct: str = ""
+    change_positive: bool = True
+
+
 class VWAPResult(rx.Base):
     ticker: str = ""
     name: str = ""
@@ -41,7 +53,7 @@ def calc_single_vwap(close_s, high_s, low_s, vol_s) -> float:
 
 
 def find_vwap_crossover(close_s, vwap: float):
-    """VWAP 하단 → 상단 교차일 탐색.
+    """VWAP 하단 → 상단 교차일 탐색 (매수 신호).
 
     Returns:
         (crossover_date: str, days_since: int)  — 교차 발생 시
@@ -57,5 +69,32 @@ def find_vwap_crossover(close_s, vwap: float):
 
     last_cross_idx = crossed_dates.index[-1]
     days_since = (close_s.index[-1] - last_cross_idx).days
+    crossover_date = last_cross_idx.strftime("%Y.%m.%d")
+    return crossover_date, days_since
+
+
+def find_vwap_downward_crossover(close_s, vwap: float, days_limit: int):
+    """VWAP 상단 → 하단 교차일 탐색 (매도 신호).
+
+    종가가 VWAP 위에 있다가 아래로 내려온 가장 최근 시점을 탐색한다.
+
+    Returns:
+        (crossover_date: str, days_since: int)  — days_limit 이내 교차 시
+        (None, None)                             — 교차 없음 또는 기간 초과
+    """
+    below = close_s < vwap
+    prev_below = below.shift(1).fillna(False)
+    crossover = below & (~prev_below)   # 이전엔 VWAP 위, 지금은 아래
+    crossed_dates = crossover[crossover]
+
+    if crossed_dates.empty:
+        return None, None
+
+    last_cross_idx = crossed_dates.index[-1]
+    days_since = (close_s.index[-1] - last_cross_idx).days
+
+    if days_since > days_limit:
+        return None, None
+
     crossover_date = last_cross_idx.strftime("%Y.%m.%d")
     return crossover_date, days_since
